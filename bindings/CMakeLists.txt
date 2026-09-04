@@ -141,14 +141,35 @@ nanobind_add_stub(
   pyslang_stub
   MODULE
   pyslang
-  OUTPUT
-  ${CMAKE_CURRENT_BINARY_DIR}/pyslang.pyi
+
   PYTHON_PATH
   ${pyslang_stub_python_path}
   DEPENDS
-  pyslang)
+  pyslang
 
+  RECURSIVE
+
+  # With RECURSIVE, nanobind's stubgen places the top-level stub into
+  # pyslang/__init__.pyi (not pyslang.pyi) and nests every submodule under
+  # pyslang/, because the compiled module has planted submodules. The OUTPUT
+  # list must name the files that are actually produced so ninja tracks the
+  # step correctly.
+  OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/__init__.pyi
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/ast.pyi
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/syntax.pyi
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/parsing.pyi
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/analysis.pyi
+    ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/driver.pyi
+)
+
+# Install the generated stub tree alongside the module. The submodule stubs
+# (ast.pyi, syntax.pyi, ...) map onto the pyslang.<sub> modules registered by
+# the package __init__.py.
 install(
-  FILES ${CMAKE_CURRENT_BINARY_DIR}/pyslang.pyi
+  DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/
   COMPONENT pylib
-  DESTINATION .)
+  DESTINATION .
+  FILES_MATCHING
+  PATTERN "*.pyi")
