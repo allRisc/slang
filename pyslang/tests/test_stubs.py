@@ -35,7 +35,7 @@ pyslang = pytest.importorskip("pyslang")
 SUBMODULES = ["ast", "syntax", "parsing", "analysis", "driver"]
 
 # A representative member of each sub-module used to probe the stubs.
-PROBE_MEMBERS = {
+SUBMODULE_PROBE_MEMBERS = {
     "ast": "Compilation",
     "syntax": "SyntaxTree",
     "parsing": "LexerOptions",
@@ -44,17 +44,13 @@ PROBE_MEMBERS = {
 }
 
 
-def _package_dir() -> Path:
-    return Path(pyslang.__file__).resolve().parent
-
-
 def test_submodule_stub_files_exist():
     """Each exposed sub-module should ship a companion ``.pyi`` stub file.
 
     The current build only produces a single ``pyslang.pyi`` (via
     ``nanobind_add_stub``), so the sub-module stubs are missing.
     """
-    pkg = _package_dir()
+    pkg = Path(pyslang.__file__).resolve().parent
     present = sorted(p.name for p in pkg.glob("*.pyi"))
     missing = [m for m in SUBMODULES if not (pkg / f"{m}.pyi").exists()]
     assert not missing, (
@@ -73,7 +69,7 @@ def test_submodule_members_are_typed(tmp_path):
     """
     lines = ["import pyslang"]
     lines += [f"from pyslang import {m}" for m in SUBMODULES]
-    lines += [f"reveal_type({m}.{member})" for m, member in PROBE_MEMBERS.items()]
+    lines += [f"reveal_type({m}.{member})" for m, member in SUBMODULE_PROBE_MEMBERS.items()]
     probe = tmp_path / "probe.py"
     probe.write_text("\n".join(lines) + "\n")
 
