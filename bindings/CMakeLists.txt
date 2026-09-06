@@ -167,6 +167,17 @@ nanobind_add_stub(
 # Install the generated stub tree alongside the module. The submodule stubs
 # (ast.pyi, syntax.pyi, ...) map onto the pyslang.<sub> modules registered by
 # the package __init__.py.
+# This is placed into the pyslang/ directory since the modules are actually imported via
+#   pyslang.pyslang.[module]
+install(
+  DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/
+  COMPONENT pylib
+  DESTINATION ./pyslang/
+  FILES_MATCHING
+  PATTERN "*.pyi")
+
+# The stubs also need to be installed in the root directory to account for the modules being
+# re-exported to sys.modules from the __init__.py
 install(
   DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/pyslang-stubs/pyslang/
   COMPONENT pylib

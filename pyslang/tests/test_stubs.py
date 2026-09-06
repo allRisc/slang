@@ -21,15 +21,17 @@ build scripts or library source is modified.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-pyslang = pytest.importorskip("pyslang")
+import pyslang
 
 # Sub-modules that the package publicly exposes (see pyslang/pyslang/__init__.py).
 SUBMODULES = ["ast", "syntax", "parsing", "analysis", "driver"]
@@ -42,6 +44,112 @@ SUBMODULE_PROBE_MEMBERS = {
     "analysis": "AnalysisManager",
     "driver": "Driver",
 }
+
+
+@pytest.fixture(scope="module")
+def example_py(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Write one probe containing all of the imports we want to check."""
+    lines = [
+        "import pyslang",
+        "",
+        "",
+        "def top_level_import() -> None:",
+    ]
+    lines.extend(
+        f"    reveal_type(pyslang.{module}.{member})"
+        for module, member in SUBMODULE_PROBE_MEMBERS.items()
+    )
+    lines.extend(["", ""])
+
+    lines.extend(["def import_from() -> None:"])
+    lines.extend(f"    from pyslang import {module}" for module in SUBMODULES)
+    lines.extend(
+        f"    reveal_type({module}.{member})"
+        for module, member in SUBMODULE_PROBE_MEMBERS.items()
+    )
+
+    path = tmp_path_factory.mktemp("stub-check") / "example.py"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _checker_command(name: str) -> list[str]:
+    """Use a checker installed in the test interpreter when possible."""
+    if importlib.util.find_spec(name) is not None:
+        return [sys.executable, "-m", name]
+
+    executable = shutil.which(name)
+    if executable is None:
+        pytest.skip(f"{name} is not installed")
+    return [executable]
+
+
+@pytest.fixture(scope="module")
+def pyright_output(example_py: Path) -> dict[str, Any]:
+    """Run pyright once and return its JSON output."""
+    result = subprocess.run(
+        [
+            *_checker_command("pyright"),
+            "--outputjson",
+            "--pythonpath",
+            sys.executable,
+            str(example_py),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if not result.stdout.strip():
+        pytest.fail(
+            "pyright did not produce JSON output "
+            f"(exit status {result.returncode}): {result.stderr}"
+        )
+
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        pytest.fail(f"Could not parse pyright output as JSON: {error}\n{result.stdout}")
+    return output
+
+
+@pytest.fixture(scope="module")
+def mypy_output(example_py: Path) -> list[dict[str, Any]]:
+    """Run mypy once and return its line-delimited JSON diagnostics."""
+    result = subprocess.run(
+        [
+            *_checker_command("mypy"),
+            "--no-incremental",
+            "--no-error-summary",
+            "--output=json",
+            "--python-executable",
+            sys.executable,
+            str(example_py),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if not result.stdout.strip():
+        pytest.fail(
+            "mypy did not produce JSON output "
+            f"(exit status {result.returncode}): {result.stderr}"
+        )
+
+    try:
+        output = [
+            json.loads(line) for line in result.stdout.splitlines() if line.strip()
+        ]
+    except json.JSONDecodeError as error:
+        pytest.fail(f"Could not parse mypy output as JSON: {error}\n{result.stdout}")
+    return output
+
+
+def _format_diagnostics(diagnostics: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"  {diagnostic.get('file', '<unknown>')}:{diagnostic.get('line', '?')}: "
+        f"{diagnostic.get('message', '<no message>')}"
+        for diagnostic in diagnostics
+    )
 
 
 def test_submodule_stub_files_exist():
@@ -59,46 +167,70 @@ def test_submodule_stub_files_exist():
     )
 
 
-@pytest.mark.skipif(shutil.which("pyright") is None, reason="pyright not installed")
-def test_submodule_members_are_typed(tmp_path):
-    """A type checker should resolve sub-module members to concrete types.
-
-    Runs pyright over a probe that touches one member of each sub-module and
-    asserts none of them come back as an unresolved attribute. Against the
-    current stubs every access is reported as ``reportAttributeAccessIssue``.
-    """
-    lines = ["import pyslang"]
-    lines += [f"from pyslang import {m}" for m in SUBMODULES]
-    lines += [f"reveal_type({m}.{member})" for m, member in SUBMODULE_PROBE_MEMBERS.items()]
-    probe = tmp_path / "probe.py"
-    probe.write_text("\n".join(lines) + "\n")
-
-    result = subprocess.run(
-        [
-            "pyright",
-            "--outputjson",
-            "--pythonpath",
-            sys.executable,
-            str(probe),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    # pyright exits non-zero when it finds errors; parse its JSON either way.
-    data = json.loads(result.stdout)
-    diagnostics = data.get("generalDiagnostics", [])
-    attr_errors = [
-        d
-        for d in diagnostics
-        if d.get("rule") in {"reportAttributeAccessIssue", "reportPrivateImportUsage"}
+def test_submodule_members_are_typed(pyright_output: dict[str, Any]):
+    """Pyright should resolve every probed member to a concrete type."""
+    diagnostics = pyright_output.get("generalDiagnostics", [])
+    errors = [
+        diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.get("severity") == "error"
     ]
+    assert not errors, "pyright reported errors:\n" + _format_diagnostics(errors)
 
-    detail = "\n".join(
-        f"  line {d['range']['start']['line'] + 1}: {d['message'].splitlines()[0]}"
-        for d in attr_errors
+    reveals = [
+        diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.get("severity") == "information"
+        and str(diagnostic.get("message", "")).startswith("Type of ")
+    ]
+    expected_reveals = len(SUBMODULE_PROBE_MEMBERS) * 2
+    assert len(reveals) == expected_reveals, (
+        f"Expected {expected_reveals} pyright reveal_type diagnostics, "
+        f"got {len(reveals)}:\n{_format_diagnostics(reveals)}"
     )
-    assert not attr_errors, (
-        "Type checker could not resolve pyslang sub-module members; the shipped "
-        "stubs do not type the ast/syntax/parsing/analysis/driver sub-modules:\n"
-        + detail
+
+    unknown = [
+        diagnostic for diagnostic in reveals if "Unknown" in diagnostic["message"]
+    ]
+    assert not unknown, (
+        "pyright could not resolve these members:\n" + _format_diagnostics(unknown)
     )
+
+
+def test_submodule_members_are_typed_with_mypy(mypy_output: list[dict[str, Any]]):
+    """Mypy should resolve every probed member to a concrete type."""
+    errors = [
+        diagnostic
+        for diagnostic in mypy_output
+        if diagnostic.get("severity") == "error"
+    ]
+    assert not errors, "mypy reported errors:\n" + _format_diagnostics(errors)
+
+    reveals = [
+        diagnostic
+        for diagnostic in mypy_output
+        if diagnostic.get("severity") == "note"
+        and str(diagnostic.get("message", "")).startswith("Revealed type is ")
+    ]
+    expected_reveals = len(SUBMODULE_PROBE_MEMBERS) * 2
+    assert len(reveals) == expected_reveals, (
+        f"Expected {expected_reveals} mypy reveal_type diagnostics, "
+        f"got {len(reveals)}:\n{_format_diagnostics(reveals)}"
+    )
+
+    unknown = [
+        diagnostic for diagnostic in reveals if "Any" in diagnostic["message"]
+    ]
+    assert not unknown, (
+        "mypy could not resolve these members:\n" + _format_diagnostics(unknown)
+    )
+
+
+# Check the flags definitions
+@pytest.mark.parametrize(
+    "flag_class", [
+        pyslang.ast.ASTFlags,
+    ],
+)
+def test_flags_none_members_exist(flag_class):
+    assert hasattr(flag_class, "None_")
