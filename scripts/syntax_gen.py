@@ -1341,8 +1341,7 @@ void registerSyntaxNodes{i}(nb::module_& m) {{
 
 
 def pythonArgName(name):
-    """Return a version of a grammar member name that is usable as a Python argument.
-    """
+    """Return a version of a grammar member name that is usable as a Python argument."""
     return name + "_" if keyword.iskeyword(name) else name
 
 
@@ -1413,14 +1412,14 @@ void registerSyntaxFactory(nb::module_& m) {
                             # Callers can still pass None explicitly.
                             required_after = any(
                                 later not in typeinfo.optionalMembers
-                                for later in typeinfo.argNames[index+1:]
+                                for later in typeinfo.argNames[index + 1 :]
                             )
-                            default = "" if required_after else (
-                                f" = static_cast<{base_type}*>(nullptr)"
+                            default = (
+                                ""
+                                if required_after
+                                else (f" = static_cast<{base_type}*>(nullptr)")
                             )
-                            outf.write(
-                                f', nb::arg("{py_arg}").none(){default}'
-                            )
+                            outf.write(f', nb::arg("{py_arg}").none(){default}')
                             break
                 else:
                     outf.write(f', "{py_arg}"_a')

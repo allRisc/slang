@@ -48,7 +48,9 @@ def test_submodule_members_are_typed_with_mypy(
 ):
     """Mypy should resolve every probed member to a concrete type."""
     errors = [
-        diagnostic for diagnostic in mypy_output if diagnostic.get("severity") == "error"
+        diagnostic
+        for diagnostic in mypy_output
+        if diagnostic.get("severity") == "error"
     ]
     assert not errors, "mypy reported errors:\n" + format_diagnostics(errors)
 
@@ -65,4 +67,6 @@ def test_submodule_members_are_typed_with_mypy(
     )
 
     unknown = [diagnostic for diagnostic in reveals if "Any" in diagnostic["message"]]
-    assert not unknown, "mypy could not resolve these members:\n" + format_diagnostics(unknown)
+    assert not unknown, "mypy could not resolve these members:\n" + format_diagnostics(
+        unknown
+    )

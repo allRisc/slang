@@ -47,7 +47,9 @@ def test_submodule_members_are_typed(
     """Pyright should resolve every probed member to a concrete type."""
     diagnostics = pyright_output.get("generalDiagnostics", [])
     errors = [
-        diagnostic for diagnostic in diagnostics if diagnostic.get("severity") == "error"
+        diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.get("severity") == "error"
     ]
     assert not errors, "pyright reported errors:\n" + format_diagnostics(errors)
 
@@ -63,7 +65,9 @@ def test_submodule_members_are_typed(
         f"got {len(reveals)}:\n{format_diagnostics(reveals)}"
     )
 
-    unknown = [diagnostic for diagnostic in reveals if "Unknown" in diagnostic["message"]]
+    unknown = [
+        diagnostic for diagnostic in reveals if "Unknown" in diagnostic["message"]
+    ]
     assert not unknown, (
         "pyright could not resolve these members:\n" + format_diagnostics(unknown)
     )
