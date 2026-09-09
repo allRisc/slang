@@ -114,12 +114,12 @@ set(SCRIPTS_DIR ${PROJECT_SOURCE_DIR}/scripts)
 # Find Python. If we're building python bindings we need the development modules
 # as well.
 if(SLANG_INCLUDE_PYLIB)
-  # Split-mode nanobind extensions use the stable ABI. On Windows this
-  # requires FindPython to provide the Python::SABIModule target in addition
-  # to Python::Module (nanobind still checks for the latter when it is loaded).
+  # Split-mode nanobind extensions use the stable ABI. On Windows this requires
+  # FindPython to provide the Python::SABIModule target in addition to
+  # Python::Module (nanobind still checks for the latter when it is loaded).
   if(WIN32)
-    find_package(
-      Python REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
+    find_package(Python REQUIRED COMPONENTS Interpreter Development.Module
+                                            Development.SABIModule)
   else()
     find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
   endif()
